@@ -1,0 +1,34 @@
+# Example configuration file for poststackmig3D
+# Format: key=value
+
+# Input time section (required)
+input_data=data/diffractor3d.sgy
+
+# Output migrated section (required)
+output_data=data/diffractor3d_migrated.sgy
+
+# Inline step in meters (required)
+inline_step=25.0
+
+# Crossline step in meters (required)
+crossline_step=25.0
+
+# Number of zero traces on each side along inlines (default 0)
+inline_padding=0
+
+# Number of zero traces on each side along crosslines (default 0)
+crossline_padding=0
+
+# Migration velocity (required)
+# Can be:
+#   - SEG-Y file: velocity=data/vel.sgy
+#   - Text table file: velocity=data/vel_table.txt
+#   - Constant: velocity=2500.0
+velocity=2000.0
+
+# Angular aperture in degrees (default 30.0)
+angle_aperture=60.0
+
+# Amplitude correction for divergence 1/(t*v^2) (default true)
+amp_correction=true
+

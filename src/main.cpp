@@ -90,6 +90,11 @@ int main(int argc, char* argv[]) {
         
         // Parallelization information
 #ifdef USE_OPENMP
+        // Set number of threads if specified in config
+        if (config.n_threads > 0) {
+            omp_set_num_threads(config.n_threads);
+        }
+        
         int num_procs = omp_get_num_procs();
         int max_threads = omp_get_max_threads();
         const char* omp_num_threads_env = std::getenv("OMP_NUM_THREADS");
@@ -97,7 +102,9 @@ int main(int argc, char* argv[]) {
         std::cout << "Parallelization: OpenMP enabled" << std::endl;
         std::cout << "Available processors: " << num_procs << std::endl;
         std::cout << "OpenMP threads: " << max_threads;
-        if (omp_num_threads_env) {
+        if (config.n_threads > 0) {
+            std::cout << " (set via config n_threads=" << config.n_threads << ")";
+        } else if (omp_num_threads_env) {
             std::cout << " (set via OMP_NUM_THREADS=" << omp_num_threads_env << ")";
         } else {
             std::cout << " (default, using all processors)";

@@ -17,6 +17,7 @@ Config::Config()
     , velocity("")
     , angle_aperture(30.0)
     , amp_correction(true)
+    , n_threads(0)
 {
 }
 
@@ -153,6 +154,9 @@ Config ConfigParser::parseConfigFile(const std::string& config_path) {
         if (config_dict.find("amp_correction") != config_dict.end()) {
             config.amp_correction = parseBool(config_dict["amp_correction"]);
         }
+        if (config_dict.find("n_threads") != config_dict.end()) {
+            config.n_threads = parseInt(config_dict["n_threads"]);
+        }
     } catch (const std::exception& e) {
         throw std::runtime_error("Error parsing config values: " + 
                                std::string(e.what()));
@@ -186,6 +190,12 @@ void ConfigParser::validateConfig(const Config& config) {
     if (config.angle_aperture <= 0 || config.angle_aperture >= 90) {
         throw std::runtime_error("angle_aperture must be in range (0, 90), got: " + 
                                std::to_string(config.angle_aperture));
+    }
+    
+    // Check n_threads
+    if (config.n_threads < 0) {
+        throw std::runtime_error("n_threads must be non-negative (0 = use all available), got: " + 
+                               std::to_string(config.n_threads));
     }
     
     // Check velocity

@@ -14,6 +14,7 @@ struct Config {
     std::string velocity;            // Required (path or number as string)
     double angle_aperture;            // Default 30.0 degrees
     bool amp_correction;             // Default true
+    int n_threads;                   // Default 0 (use all available threads)
     
     Config();
 };

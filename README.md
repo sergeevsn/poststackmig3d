@@ -41,7 +41,7 @@ make
 - `ENABLE_OPENMP` (default: ON) - Enable OpenMP parallelization
 - `ENABLE_SIMD` (default: ON) - Enable SIMD optimizations (AVX2/FMA)
 
-The number of OpenMP threads can be controlled via the `OMP_NUM_THREADS` environment variable.
+The number of OpenMP threads can be controlled via the `n_threads` parameter in the configuration file (default: 0 = use all available threads) or via the `OMP_NUM_THREADS` environment variable.
 
 ### Installation
 
@@ -77,6 +77,7 @@ crossline_padding=30
 velocity=data/vel.sgy
 angle_aperture=30.0
 amp_correction=true
+n_threads=4
 ```
 
 See `config_example.txt` for a complete example.
@@ -101,6 +102,7 @@ The repository includes example data (`data/diffractor3d.sgy`) and configuration
   - Constant: `velocity=2500.0`
 - **angle_aperture** (default: 30.0) - angular aperture in degrees
 - **amp_correction** (default: true) - enable amplitude correction for divergence 1/(t*v²)
+- **n_threads** (default: 0) - number of OpenMP threads to use (0 = use all available threads)
 
 ## Input Data Requirements
 
@@ -156,6 +158,6 @@ The program uses only standard C++ libraries and does not require external depen
 - When working with large files, it's recommended to monitor memory usage
 - Output file is created with extended dimensions (accounting for padding)
 - For best performance, compile with optimization flags (`-O3`) and enable SIMD/OpenMP
-- The number of OpenMP threads can be controlled via `OMP_NUM_THREADS` environment variable
+- The number of OpenMP threads can be controlled via `n_threads` parameter in the configuration file (default: 0 = use all available threads) or via `OMP_NUM_THREADS` environment variable
 
 

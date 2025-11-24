@@ -288,7 +288,8 @@ int main(int argc, char* argv[]) {
             }
             
             // Prepare buffer with padding (thread-safe file I/O)
-            std::vector<std::vector<std::vector<float>>> input_buffer;
+            std::vector<float> input_buffer;
+            size_t n_buf_il, n_buf_xl;
             std::vector<int32_t> il_pos_indices;
             std::vector<int32_t> xl_pos_indices;
             
@@ -300,12 +301,14 @@ int main(int argc, char* argv[]) {
                     lookup_result.crossline_labels,
                     max_aperture_il, config.inline_padding,
                     config.crossline_padding, n_t,
-                    input_buffer, il_pos_indices, xl_pos_indices
+                    input_buffer, n_buf_il, n_buf_xl,
+                    il_pos_indices, xl_pos_indices
                 );
             }
             
             // Prepare velocity slice with padding (thread-safe file I/O)
-            std::vector<std::vector<float>> velocity_slice;
+            std::vector<float> velocity_slice;
+            size_t n_vel_buf_xl;
             {
                 std::lock_guard<std::mutex> lock(file_io_mutex);
                 MigrationKernel::prepareVelocitySliceWithPadding(
@@ -313,7 +316,7 @@ int main(int argc, char* argv[]) {
                     lookup_result.inline_labels,
                     lookup_result.crossline_labels,
                     config.crossline_padding, n_t, dt,
-                    velocity_slice
+                    velocity_slice, n_vel_buf_xl
                 );
             }
             
@@ -352,7 +355,8 @@ int main(int argc, char* argv[]) {
             // current_xl_start = 0 because output_slice now includes padding
             // and we want to write to all output traces including padding
             MigrationKernel::kirchhoffKernel3DWithPadding(
-                input_buffer, velocity_slice, output_slice,
+                input_buffer.data(), n_buf_il, n_buf_xl, n_t,
+                velocity_slice.data(), output_slice,
                 il_pos_indices, xl_pos_indices,
                 current_il_pos_in_buffer,
                 0,  // Start from beginning of buffer (buffer already has padding)

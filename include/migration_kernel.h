@@ -11,9 +11,12 @@
 class MigrationKernel {
 public:
     // Main migration function
+    // input_buffer: flat array [n_buf_il * n_buf_xl * n_t], access: buffer[il * stride_xl + xl * stride_t + t]
+    // velocity_slice: flat array [n_buf_xl * n_t], access: velocity[xl * n_t + t]
     static void kirchhoffKernel3DWithPadding(
-        const std::vector<std::vector<std::vector<float>>>& input_buffer,  // [n_buf_il][n_buf_xl][n_t]
-        const std::vector<std::vector<float>>& velocity_slice,              // [n_buf_xl][n_t]
+        const float* input_buffer,                                          // Flat buffer [n_buf_il * n_buf_xl * n_t]
+        size_t n_buf_il, size_t n_buf_xl, size_t n_t,                      // Buffer dimensions
+        const float* velocity_slice,                                        // Flat velocity [n_buf_xl * n_t]
         std::vector<std::vector<float>>& output_slice,                     // [n_xl][n_t] WITH padding
         const std::vector<int32_t>& il_pos_indices,                         // Positional indices for inline
         const std::vector<int32_t>& xl_pos_indices,                        // Positional indices for crossline
@@ -28,6 +31,7 @@ public:
     );
     
     // Prepare input buffer with padding
+    // Returns flat buffer and dimensions
     static void prepareInputBufferWithPadding(
         SegyFile& segy_file,
         const LookupTable& lookup_table,
@@ -38,12 +42,14 @@ public:
         int inline_padding,
         int crossline_padding,
         size_t n_t,
-        std::vector<std::vector<std::vector<float>>>& input_buffer,
+        std::vector<float>& input_buffer,                                   // Flat buffer output
+        size_t& n_buf_il, size_t& n_buf_xl,                                 // Buffer dimensions output
         std::vector<int32_t>& il_pos_indices,
         std::vector<int32_t>& xl_pos_indices
     );
     
     // Prepare velocity slice with padding
+    // Returns flat buffer
     static void prepareVelocitySliceWithPadding(
         VelocityProvider& velocity_provider,
         size_t current_il_idx,
@@ -52,7 +58,8 @@ public:
         int crossline_padding,
         size_t n_t,
         double dt,
-        std::vector<std::vector<float>>& velocity_slice
+        std::vector<float>& velocity_slice,                                 // Flat buffer output
+        size_t& n_buf_xl                                                    // Buffer dimension output
     );
     
 private:

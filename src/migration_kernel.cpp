@@ -123,20 +123,24 @@ void MigrationKernel::kirchhoffKernel3DWithPadding(
             
             float migrated_amp = 0.0f;
             
-#ifdef USE_SIMD
-            // SIMD-optimized accumulation for batches
-            alignas(32) float partial_sums[8] = {0.0f};
-            size_t partial_count = 0;
-            __m256 sum_vec = _mm256_setzero_ps();
+            // Sum over Inline (buffer) - parallelized
+#ifdef USE_OPENMP
+            #pragma omp parallel for reduction(+:migrated_amp) if(n_buf_il > 4)
 #endif
-            
-            // Sum over Inline (buffer)
             for (size_t buf_i = 0; buf_i < n_buf_il; ++buf_i) {
                 float dist_x_sq = dist_x_sq_cache[buf_i];
                 
                 if (dist_x_sq > max_dist_sq) {
                     continue;
                 }
+                
+#ifdef USE_SIMD
+                // SIMD-optimized accumulation for batches (per thread)
+                alignas(32) float partial_sums[8] = {0.0f};
+                size_t partial_count = 0;
+                __m256 sum_vec = _mm256_setzero_ps();
+                float thread_sum = 0.0f;
+#endif
                 
                 // Sum over Crossline in buffer
                 for (int k_buf = xl_start_buf; k_buf < xl_end_buf; ++k_buf) {
@@ -191,30 +195,30 @@ void MigrationKernel::kirchhoffKernel3DWithPadding(
 #endif
                     }
                 }
-            }
-            
+                
 #ifdef USE_SIMD
-            // Process remainder
-            if (partial_count > 0) {
-                for (size_t i = 0; i < partial_count; ++i) {
-                    partial_sums[i] = partial_sums[i];
+                // Process remainder for this inline
+                if (partial_count > 0) {
+                    // Fill remainder with zeros for alignment
+                    for (size_t i = partial_count; i < 8; ++i) {
+                        partial_sums[i] = 0.0f;
+                    }
+                    __m256 partial_vec = _mm256_load_ps(partial_sums);
+                    sum_vec = _mm256_add_ps(sum_vec, partial_vec);
                 }
-                // Fill remainder with zeros for alignment
-                for (size_t i = partial_count; i < 8; ++i) {
-                    partial_sums[i] = 0.0f;
-                }
-                __m256 partial_vec = _mm256_load_ps(partial_sums);
-                sum_vec = _mm256_add_ps(sum_vec, partial_vec);
-            }
-            
-            // Horizontal summation of all 8 elements
-            __m128 sum_low = _mm256_extractf128_ps(sum_vec, 0);
-            __m128 sum_high = _mm256_extractf128_ps(sum_vec, 1);
-            __m128 sum_128 = _mm_add_ps(sum_low, sum_high);
-            sum_128 = _mm_hadd_ps(sum_128, sum_128);
-            sum_128 = _mm_hadd_ps(sum_128, sum_128);
-            migrated_amp = _mm_cvtss_f32(sum_128);
+                
+                // Horizontal summation of all 8 elements
+                __m128 sum_low = _mm256_extractf128_ps(sum_vec, 0);
+                __m128 sum_high = _mm256_extractf128_ps(sum_vec, 1);
+                __m128 sum_128 = _mm_add_ps(sum_low, sum_high);
+                sum_128 = _mm_hadd_ps(sum_128, sum_128);
+                sum_128 = _mm_hadd_ps(sum_128, sum_128);
+                thread_sum = _mm_cvtss_f32(sum_128);
+                
+                // Add to reduction variable
+                migrated_amp += thread_sum;
 #endif
+            }
             
             output_slice[xl_idx][t_idx] = migrated_amp;
         }

@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <algorithm>
+#include <mutex>
 
 #ifdef USE_OPENMP
 #include <omp.h>
@@ -233,7 +234,26 @@ int main(int argc, char* argv[]) {
         size_t n_output_xl = output_crossline_labels.size();
         ProgressBar progress("Migrating", n_output_il);
         
-        // Process all output inlines (including padding)
+        // Structure to store processed inline results
+        struct ProcessedInline {
+            size_t output_il_idx;
+            std::vector<std::vector<float>> output_slice;
+            bool is_padding_il;
+            int32_t output_inline_label;
+        };
+        
+        // Vector to store processed inlines (will be written sequentially)
+        std::vector<ProcessedInline> processed_inlines(n_output_il);
+        
+        // Mutexes for thread-safe operations
+        std::mutex file_io_mutex;
+        std::mutex progress_mutex;
+        size_t processed_count = 0;  // Thread-safe counter for progress
+        
+        // Process all output inlines (including padding) - PARALLELIZED
+#ifdef USE_OPENMP
+        #pragma omp parallel for schedule(dynamic, 1)
+#endif
         for (size_t output_il_idx = 0; output_il_idx < n_output_il; ++output_il_idx) {
             int32_t output_inline_label = output_inline_labels[output_il_idx];
             
@@ -267,29 +287,35 @@ int main(int argc, char* argv[]) {
                 input_il_idx = std::distance(lookup_result.inline_labels.begin(), input_il_it);
             }
             
-            // Prepare buffer with padding
+            // Prepare buffer with padding (thread-safe file I/O)
             std::vector<std::vector<std::vector<float>>> input_buffer;
             std::vector<int32_t> il_pos_indices;
             std::vector<int32_t> xl_pos_indices;
             
-            MigrationKernel::prepareInputBufferWithPadding(
-                input_file, lookup_result.lookup_table,
-                input_il_idx, lookup_result.inline_labels, 
-                lookup_result.crossline_labels,
-                max_aperture_il, config.inline_padding,
-                config.crossline_padding, n_t,
-                input_buffer, il_pos_indices, xl_pos_indices
-            );
+            {
+                std::lock_guard<std::mutex> lock(file_io_mutex);
+                MigrationKernel::prepareInputBufferWithPadding(
+                    input_file, lookup_result.lookup_table,
+                    input_il_idx, lookup_result.inline_labels, 
+                    lookup_result.crossline_labels,
+                    max_aperture_il, config.inline_padding,
+                    config.crossline_padding, n_t,
+                    input_buffer, il_pos_indices, xl_pos_indices
+                );
+            }
             
-            // Prepare velocity slice with padding
+            // Prepare velocity slice with padding (thread-safe file I/O)
             std::vector<std::vector<float>> velocity_slice;
-            MigrationKernel::prepareVelocitySliceWithPadding(
-                *velocity_provider, input_il_idx,
-                lookup_result.inline_labels,
-                lookup_result.crossline_labels,
-                config.crossline_padding, n_t, dt,
-                velocity_slice
-            );
+            {
+                std::lock_guard<std::mutex> lock(file_io_mutex);
+                MigrationKernel::prepareVelocitySliceWithPadding(
+                    *velocity_provider, input_il_idx,
+                    lookup_result.inline_labels,
+                    lookup_result.crossline_labels,
+                    config.crossline_padding, n_t, dt,
+                    velocity_slice
+                );
+            }
             
             // Output slice WITH padding (to capture migrated data in padding areas)
             size_t n_output_xl_padded = n_output_xl;  // Already includes padding
@@ -338,15 +364,35 @@ int main(int argc, char* argv[]) {
                 config.amp_correction
             );
             
+            // Store processed inline result (will be written sequentially later)
+            processed_inlines[output_il_idx].output_il_idx = output_il_idx;
+            processed_inlines[output_il_idx].output_slice = std::move(output_slice);
+            processed_inlines[output_il_idx].is_padding_il = is_padding_il;
+            processed_inlines[output_il_idx].output_inline_label = output_inline_label;
+            
+            // Update progress (thread-safe)
+            {
+                std::lock_guard<std::mutex> lock(progress_mutex);
+                processed_count++;
+                progress.update(processed_count);
+            }
+        }
+        
+        // Write all processed inlines sequentially (to avoid disk I/O race conditions)
+        // Note: Progress is already updated during parallel processing, so we don't update it here
+        for (size_t output_il_idx = 0; output_il_idx < n_output_il; ++output_il_idx) {
+            const auto& processed = processed_inlines[output_il_idx];
+            size_t n_output_xl_padded = processed.output_slice.size();
+            
             // Write all traces for this inline (including padding)
             for (size_t output_xl_idx = 0; output_xl_idx < n_output_xl_padded; ++output_xl_idx) {
                 int32_t output_crossline_label = output_crossline_labels[output_xl_idx];
                 
                 // Try to read header from input file if this trace exists
                 std::vector<char> trace_header;
-                if (!is_padding_il) {
+                if (!processed.is_padding_il) {
                     TraceCoords coords;
-                    coords.inline_3d = output_inline_label;
+                    coords.inline_3d = processed.output_inline_label;
                     coords.crossline_3d = output_crossline_label;
                     
                     auto trace_it = lookup_result.lookup_table.find(coords);
@@ -358,12 +404,10 @@ int main(int argc, char* argv[]) {
                 // Write trace (including padding traces)
                 output_file.writeTrace(
                     output_il_idx, output_xl_idx,
-                    output_slice[output_xl_idx],
+                    processed.output_slice[output_xl_idx],
                     trace_header
                 );
             }
-            
-            progress.update(output_il_idx + 1);
         }
         
         progress.finish();

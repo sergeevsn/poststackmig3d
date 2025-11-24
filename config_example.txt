@@ -32,3 +32,6 @@ angle_aperture=60.0
 # Amplitude correction for divergence 1/(t*v^2) (default true)
 amp_correction=true
 
+# Number of parallel threads for OpenMP
+n_threads=8
+

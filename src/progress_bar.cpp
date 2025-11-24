@@ -48,6 +48,10 @@ void ProgressBar::printBar(size_t current) {
     double progress = static_cast<double>(current) / total_;
     size_t percent = static_cast<size_t>(std::round(progress * 100.0));
     
+    // Thread-safe check, update, and output
+    // Protect entire method to prevent race conditions and mixed output
+    std::lock_guard<std::mutex> lock(mutex_);
+    
     // Update only when percent changes or every second
     double time_since_last_update = std::chrono::duration<double>(now - last_update_time_).count();
     if (percent == last_percent_ && current < total_ && time_since_last_update < 0.5) {
@@ -103,6 +107,7 @@ void ProgressBar::printBar(size_t current) {
 }
 
 void ProgressBar::update(size_t current) {
+    // printBar is already thread-safe internally
     printBar(current);
 }
 

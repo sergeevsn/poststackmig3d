@@ -6,6 +6,7 @@
 #include <iostream>
 #include <iomanip>
 #include <chrono>
+#include <mutex>
 
 class ProgressBar {
 public:
@@ -22,6 +23,8 @@ private:
     std::chrono::high_resolution_clock::time_point start_time_;
     std::chrono::high_resolution_clock::time_point last_update_time_;
     size_t last_update_count_;
+    
+    mutable std::mutex mutex_;  // Mutex for thread-safe operations
     
     void printBar(size_t current);
     std::string formatTime(double seconds);

@@ -10,6 +10,10 @@
 #include <climits>
 #include <utility>
 
+#ifdef USE_OPENMP
+#include <omp.h>
+#endif
+
 #ifdef USE_SIMD
 #include <immintrin.h>
 #include <tmmintrin.h>  // For _mm_shuffle_epi8
@@ -423,43 +427,56 @@ void SegyFile::createOutputFile(const std::string& output_path,
     // Calculate output dimensions
     size_t n_il_out = output_inline_labels.size();
     size_t n_xl_out = output_crossline_labels.size();
+    size_t total_traces = n_il_out * n_xl_out;
     
     // Initialize trace headers and data
     std::vector<char> empty_header(TRACE_HEADER_SIZE, 0);
-    std::vector<uint32_t> empty_data(input_meta.num_samples, 0);
+    const size_t trace_data_size = input_meta.num_samples * sizeof(uint32_t);
     
-    for (size_t il_idx = 0; il_idx < n_il_out; ++il_idx) {
-        for (size_t xl_idx = 0; xl_idx < n_xl_out; ++xl_idx) {
-            // Write trace header
-            std::vector<char> header = empty_header;
-            
-            // Set INLINE_3D and CROSSLINE_3D
-            int32_t inline_3d = output_inline_labels[il_idx];
-            int32_t crossline_3d = output_crossline_labels[xl_idx];
-            
-            // Swap bytes for big-endian
-            uint32_t inline_swapped = ((static_cast<uint32_t>(inline_3d) & 0xFF000000) >> 24) |
-                                      ((static_cast<uint32_t>(inline_3d) & 0x00FF0000) >> 8) |
-                                      ((static_cast<uint32_t>(inline_3d) & 0x0000FF00) << 8) |
-                                      ((static_cast<uint32_t>(inline_3d) & 0x000000FF) << 24);
-            
-            uint32_t crossline_swapped = ((static_cast<uint32_t>(crossline_3d) & 0xFF000000) >> 24) |
-                                         ((static_cast<uint32_t>(crossline_3d) & 0x00FF0000) >> 8) |
-                                         ((static_cast<uint32_t>(crossline_3d) & 0x0000FF00) << 8) |
-                                         ((static_cast<uint32_t>(crossline_3d) & 0x000000FF) << 24);
-            
-            std::memcpy(header.data() + 188, &inline_swapped, sizeof(int32_t));
-            std::memcpy(header.data() + 192, &crossline_swapped, sizeof(int32_t));
-            
-            output_file.write(header.data(), TRACE_HEADER_SIZE);
-            
-            // Write zero trace data
-            for (size_t i = 0; i < input_meta.num_samples; ++i) {
-                uint32_t zero_swapped = 0;
-                output_file.write(reinterpret_cast<const char*>(&zero_swapped), 
-                                 sizeof(uint32_t));
-            }
-        }
+    // Prepare all headers in parallel (if OpenMP is available)
+    std::vector<std::vector<char>> all_headers(total_traces);
+    
+#ifdef USE_OPENMP
+    #pragma omp parallel for
+#endif
+    for (size_t trace_idx = 0; trace_idx < total_traces; ++trace_idx) {
+        size_t il_idx = trace_idx / n_xl_out;
+        size_t xl_idx = trace_idx % n_xl_out;
+        
+        // Create trace header
+        std::vector<char> header = empty_header;
+        
+        // Set INLINE_3D and CROSSLINE_3D
+        int32_t inline_3d = output_inline_labels[il_idx];
+        int32_t crossline_3d = output_crossline_labels[xl_idx];
+        
+        // Swap bytes for big-endian
+        uint32_t inline_swapped = ((static_cast<uint32_t>(inline_3d) & 0xFF000000) >> 24) |
+                                  ((static_cast<uint32_t>(inline_3d) & 0x00FF0000) >> 8) |
+                                  ((static_cast<uint32_t>(inline_3d) & 0x0000FF00) << 8) |
+                                  ((static_cast<uint32_t>(inline_3d) & 0x000000FF) << 24);
+        
+        uint32_t crossline_swapped = ((static_cast<uint32_t>(crossline_3d) & 0xFF000000) >> 24) |
+                                     ((static_cast<uint32_t>(crossline_3d) & 0x00FF0000) >> 8) |
+                                     ((static_cast<uint32_t>(crossline_3d) & 0x0000FF00) << 8) |
+                                     ((static_cast<uint32_t>(crossline_3d) & 0x000000FF) << 24);
+        
+        std::memcpy(header.data() + 188, &inline_swapped, sizeof(int32_t));
+        std::memcpy(header.data() + 192, &crossline_swapped, sizeof(int32_t));
+        
+        all_headers[trace_idx] = std::move(header);
+    }
+    
+    // Prepare zero data block (write once, reuse for all traces)
+    std::vector<uint32_t> zero_data(input_meta.num_samples, 0);
+    
+    // Write all traces sequentially (I/O must be sequential)
+    for (size_t trace_idx = 0; trace_idx < total_traces; ++trace_idx) {
+        // Write trace header
+        output_file.write(all_headers[trace_idx].data(), TRACE_HEADER_SIZE);
+        
+        // Write zero trace data (write entire block at once for better performance)
+        output_file.write(reinterpret_cast<const char*>(zero_data.data()), trace_data_size);
     }
     
     output_file.close();
